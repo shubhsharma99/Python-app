@@ -16,14 +16,12 @@ jobs:
       IMAGE_TAG: latest
       CLUSTER_NAME: my-cluster
       SERVICE_NAME: my-app
-      TASK_FAMILY: my-task-def
-      CONTAINER_NAME: my-app
-      EXECUTION_ROLE_ARN: arn:aws:iam::986129559431:role/ecsTaskExecutionRole
+      TASK_DEFINITION_NAME: my-task-def
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
-      
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v2
         with:
@@ -35,54 +33,19 @@ jobs:
         run: |
           aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $ECR_REGISTRY
 
-      - name: Build Docker image
-        run: docker build -t $ECR_REPO .
-
-      - name: Tag image for ECR
-        run: docker tag $ECR_REPO:latest $ECR_REGISTRY/$ECR_REPO:$IMAGE_TAG
-
-      - name: Push image to ECR
-        run: docker push $ECR_REGISTRY/$ECR_REPO:$IMAGE_TAG
-
-      - name: Create task definition JSON
+      - name: Build and Push Docker image
         run: |
-          IMAGE_URI=$ECR_REGISTRY/$ECR_REPO:$IMAGE_TAG
-          cat > task-def.json <<EOF
-          {
-            "family": "$TASK_FAMILY",
-            "networkMode": "awsvpc",
-            "requiresCompatibilities": ["FARGATE"],
-            "cpu": "256",
-            "memory": "512",
-            "executionRoleArn": "$EXECUTION_ROLE_ARN",
-            "containerDefinitions": [
-              {
-                "name": "$CONTAINER_NAME",
-                "image": "$IMAGE_URI",
-                "essential": true,
-                "portMappings": [
-                  {
-                    "containerPort": 80,
-                    "protocol": "tcp"
-                  }
-                ]
-              }
-            ]
-          }
-          EOF
+          docker build -t $ECR_REGISTRY/$ECR_REPO:$IMAGE_TAG .
+          docker push $ECR_REGISTRY/$ECR_REPO:$IMAGE_TAG
 
-      - name: Register new task definition
-        run: |
-          aws ecs register-task-definition --cli-input-json file://task-def.json
-
-      - name: Get latest task revision ARN
+      - name: Get current task definition revision
         id: get-task
         run: |
-          ARN=$(aws ecs describe-task-definition \
-            --task-definition $TASK_FAMILY \
+          arn=$(aws ecs describe-task-definition \
+            --task-definition $TASK_DEFINITION_NAME \
             --query 'taskDefinition.taskDefinitionArn' \
             --output text)
-          echo "TASK_DEF_ARN=$ARN" >> $GITHUB_OUTPUT
+          echo "::set-output name=TASK_DEF_ARN::$arn"
 
       - name: Deploy to ECS
         run: |
