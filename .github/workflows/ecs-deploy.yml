@@ -17,7 +17,7 @@ jobs:
       CLUSTER_NAME: my-cluster
       SERVICE_NAME: my-app
       TASK_FAMILY: my-task-def
-      CONTAINER_NAME: my-container
+      CONTAINER_NAME: my-app
       EXECUTION_ROLE_ARN: arn:aws:iam::986129559431:role/ecsTaskExecutionRole
 
     steps:
