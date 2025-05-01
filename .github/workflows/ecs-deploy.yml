@@ -4,9 +4,21 @@ on:
   push:
     branches:
       - main
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
+
+    env:
+      AWS_REGION: us-east-1
+      ECR_REGISTRY: 986129559431.dkr.ecr.us-east-1.amazonaws.com
+      ECR_REPO: my-ecs-app
+      IMAGE_TAG: latest
+      CLUSTER_NAME: my-cluster
+      SERVICE_NAME: my-app
+      TASK_FAMILY: my-task-def
+      CONTAINER_NAME: my-container
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
@@ -16,24 +28,64 @@ jobs:
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: us-east-1
+          aws-region: ${{ env.AWS_REGION }}
 
       - name: Login to Amazon ECR
-        run: aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin 986129559431.dkr.ecr.us-east-1.amazonaws.com
+        run: |
+          aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $ECR_REGISTRY
 
       - name: Build Docker image
-        run: docker build -t my-ecs-app .
-      
+        run: docker build -t $ECR_REPO .
+
       - name: Tag image for ECR
-        run: docker tag my-ecs-app:latest 986129559431.dkr.ecr.us-east-1.amazonaws.com/my-ecs-app:latest
+        run: docker tag $ECR_REPO:latest $ECR_REGISTRY/$ECR_REPO:$IMAGE_TAG
 
       - name: Push image to ECR
-        run: docker push 986129559431.dkr.ecr.us-east-1.amazonaws.com/my-ecs-app:latest
+        run: docker push $ECR_REGISTRY/$ECR_REPO:$IMAGE_TAG
+
+      - name: Create task definition JSON
+        run: |
+          IMAGE_URI=$ECR_REGISTRY/$ECR_REPO:$IMAGE_TAG
+          cat > task-def.json <<EOF
+          {
+            "family": "$TASK_FAMILY",
+            "networkMode": "awsvpc",
+            "requiresCompatibilities": ["FARGATE"],
+            "cpu": "256",
+            "memory": "512",
+            "containerDefinitions": [
+              {
+                "name": "$CONTAINER_NAME",
+                "image": "$IMAGE_URI",
+                "essential": true,
+                "portMappings": [
+                  {
+                    "containerPort": 80,
+                    "protocol": "tcp"
+                  }
+                ]
+              }
+            ]
+          }
+          EOF
+
+      - name: Register new task definition
+        run: |
+          aws ecs register-task-definition --cli-input-json file://task-def.json
+
+      - name: Get latest task revision ARN
+        id: get-task
+        run: |
+          ARN=$(aws ecs describe-task-definition \
+            --task-definition $TASK_FAMILY \
+            --query 'taskDefinition.taskDefinitionArn' \
+            --output text)
+          echo "TASK_DEF_ARN=$ARN" >> $GITHUB_OUTPUT
 
       - name: Deploy to ECS
         run: |
           aws ecs update-service \
-            --cluster my-cluster \
-            --service my-app \
-            --force-new-deployment \
-            --region us-east-1
+            --cluster $CLUSTER_NAME \
+            --service $SERVICE_NAME \
+            --task-definition ${{ steps.get-task.outputs.TASK_DEF_ARN }} \
+            --force-new-deployment
