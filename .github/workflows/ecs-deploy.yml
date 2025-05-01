@@ -18,6 +18,7 @@ jobs:
       SERVICE_NAME: my-app
       TASK_FAMILY: my-task-def
       CONTAINER_NAME: my-container
+      EXECUTION_ROLE_ARN: arn:aws:iam::123456789012:role/ecsTaskExecutionRole
 
     steps:
       - name: Checkout code
@@ -53,6 +54,7 @@ jobs:
             "requiresCompatibilities": ["FARGATE"],
             "cpu": "256",
             "memory": "512",
+            "executionRoleArn": "$EXECUTION_ROLE_ARN",
             "containerDefinitions": [
               {
                 "name": "$CONTAINER_NAME",
